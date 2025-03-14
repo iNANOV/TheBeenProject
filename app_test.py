@@ -3,6 +3,8 @@ import pandas as pd
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates  # Add this import
+import matplotlib.patches as patches  # To manually draw rectangles for candlesticks
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from werkzeug.security import check_password_hash
@@ -105,5 +107,63 @@ if st.session_state["authenticated"]:
                 ha='center', va='center', fontsize=10, color='black', rotation=90)
 
     # Show the plot in Streamlit
+    st.pyplot(fig)
+    plt.close(fig)  # Close the figure to avoid memory issues
+
+    # OHLC
+    #  Convert 'date' column to datetime
+    # Convert 'date' column to datetime
+    df['date'] = pd.to_datetime(df['date'])
+
+    # Create a figure with two subplots, adjusting the width ratios
+    fig = plt.figure(figsize=(12, 8))
+    spec = fig.add_gridspec(ncols=4, nrows=2, height_ratios=[3, 1])  # 3 parts for the first plot and 1 part for the second plot
+
+    ax1 = fig.add_subplot(spec[0, :])  # OHLC plot takes up full width
+    ax2 = fig.add_subplot(spec[1, :])  # Volume plot
+
+    # Plot OHLC Candlestick chart manually with thicker candles and wicks
+    body_width = pd.Timedelta(hours=72)  # Increase body width for better visibility
+
+    for i in range(len(df)):
+        color = 'green' if df['close'][i] >= df['open'][i] else 'red'
+
+        # Plot the wick (high to low) with thicker lines
+        ax1.plot([df['date'][i], df['date'][i]], [df['low'][i], df['high'][i]], color=color, lw=2)
+
+        # Plot the body (open to close) with black borders and wider candles
+        body_bottom = min(df['open'][i], df['close'][i])
+        body_top = max(df['open'][i], df['close'][i])
+
+        # Ensure the body has black borders and is much wider
+        ax1.add_patch(plt.Rectangle((df['date'][i] - body_width / 2, body_bottom),  # Open-close rectangle
+                                    body_width, body_top - body_bottom,
+                                    color=color, lw=2, edgecolor='black'))  # Black border with thicker lines
+
+    ax1.set_title("OHLC Chart (Candlestick)")
+    ax1.set_ylabel("Price")
+    ax1.legend(loc="upper left")
+
+    # Format x-axis labels for better readability
+    ax1.xaxis.set_major_locator(mdates.MonthLocator())
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax1.xaxis.set_minor_locator(mdates.WeekdayLocator())
+    ax1.tick_params(axis='x', rotation=90)
+
+    # Plot volume chart (bar chart)
+    ax2.bar(df['date'], df['volume'], color='green', alpha=0.7)
+
+    # Adjust the width of the volume bars to be narrower than OHLC chart
+    for bar in ax2.patches:
+        bar.set_width(0.25)  # Adjust volume bar width (1/3 of OHLC chart)
+
+    ax2.set_title("Volume Chart")
+    ax2.set_xlabel("Date")
+    ax2.set_ylabel("Volume")
+
+    # Adjust layout to avoid overlap and control the width of the subplots
+    fig.tight_layout(h_pad=3.0)
+
+    # Show the plots in Streamlit
     st.pyplot(fig)
     plt.close(fig)  # Close the figure to avoid memory issues
