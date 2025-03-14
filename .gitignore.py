@@ -1,0 +1,20 @@
+# Ignore Streamlit secrets
+.streamlit/secrets.toml
+
+# Ignore Python virtual environments
+venv/
+env/
+
+# Ignore compiled Python files
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore logs and temporary files
+*.log
+logs/
+tmp/
