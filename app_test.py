@@ -49,3 +49,59 @@ if not st.session_state["authenticated"]:
 if st.session_state["authenticated"]:
     st.title("Test")
     st.write("Welcome to the test page!")
+
+    # Retrieve and display data
+    st.title("MongoDB Data Viewer")
+
+    try:
+        data = db.Models.find_one({"_id": ObjectId("67b73c19fc9a30b7cb7f1ae4")}, {"Now": 1, "_id": 0})
+        if data and "Now" in data:
+            df = pd.DataFrame(data["Now"])
+            st.write(df)
+        else:
+            st.error("No data found for the given ID.")
+    except Exception as e:
+        st.error(f"Error fetching data: {e}")
+
+
+    # Define a custom colormap that transitions from light yellow to dark orange
+    colors = ["#FFFFE0", "#FFBF00", "#FF4500"]  # Light Yellow to Dark Orange
+    cmap = LinearSegmentedColormap.from_list("yellow_orange", colors)
+
+    # Set figure size
+    plt.figure(figsize=(12, 6))
+
+    df["Signal"] = df.filter(regex="^S\d+").apply(pd.to_numeric, errors="coerce").sum(axis=1)
+
+    # Normalize Signal values for color scaling
+    norm = Normalize(vmin=df["Signal"].min(), vmax=df["Signal"].max())
+
+    # Plot bars with color based on Signal using the yellow-to-orange colormap
+    bars = plt.bar(df["date"], df["R_t"], 
+                color=cmap(norm(df["Signal"])), 
+                edgecolor='black')  # Add black border around each bar
+
+    # Rotate x-axis labels (dates) for vertical display
+    plt.xticks(rotation=90)
+
+    # Remove gridlines from background
+    plt.grid(False)
+
+    # Set labels and title
+    plt.xlabel("Date")
+    plt.ylabel("R_t")
+    plt.title("GSPC call MASTER model, trained until Dec 2023, all")
+
+    # Add color bar to show the scale of the Signal
+    plt.colorbar(plt.cm.ScalarMappable(cmap=cmap, norm=norm), label='Signal')
+
+    # Add Signal values vertically inside the bars
+    for bar, signal in zip(bars, df["Signal"]):
+        height = bar.get_height()
+        # Place the text vertically inside the bars, centered
+        plt.text(bar.get_x() + bar.get_width() / 2, height / 2, f'{signal:.2f}', 
+                ha='center', va='center', fontsize=10, color='black', rotation=90)
+
+    # Show the plot in Streamlit
+    st.pyplot(plt)
+
