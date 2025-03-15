@@ -18,3 +18,6 @@ Thumbs.db
 *.log
 logs/
 tmp/
+
+# Ignore files
+develop.py
