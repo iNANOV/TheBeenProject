@@ -33,7 +33,7 @@ def plot_signal_chart(df, selection):
     ax1.grid(True)
     ax1.set_xlabel("")  # Removed 'Date' label
     ax1.set_ylabel("R_t", fontsize=9, fontweight='normal', family='Arial')  # Set label font size to 9
-    ax1.set_title(f"{selection} Model: R_t Visualization", fontsize=9, fontweight='normal', family='Arial')
+    ax1.set_title(f"Master model based on {selection} simulation", fontsize=9, fontweight='normal', family='Arial')
 
     # Color bar (legend)
     sm = plt.cm.ScalarMappable(cmap=bar_cmap, norm=norm)
