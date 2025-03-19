@@ -11,7 +11,80 @@ from bson.objectid import ObjectId
 from werkzeug.security import check_password_hash
 
 # Set the theme
-mt.set_theme("yellowish")
+# mt.set_theme("yellowish")
+
+def plot_line_with_dots(df, selection):
+    # Ensure 'Sim_datetime' is in proper datetime format
+    df['Sim_datetime'] = pd.to_datetime(df['Sim_datetime'])
+
+    # Plot the data
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(df['Sim_datetime'], df['Sim_trials'], marker='o', linestyle='-', color='b', label='Sim_trials')
+
+    # Set title and labels
+    ax.set_title(f"Simulation {selection} progressing till adding new best models", fontsize=9, fontweight='normal', family='Arial')
+    #ax.set_xlabel('Datetime', fontsize=9)
+    ax.set_ylabel('Simulation Trials', fontsize=9)
+
+    # Rotate the x-axis labels for better readability
+    plt.xticks(rotation=90)
+
+    # Display the plot in Streamlit
+    st.pyplot(fig)
+    plt.close(fig)
+
+def calculate_unique_ids(df):
+    # Initialize the 'Munique' column
+    df['Munique'] = 0
+    seen_ids = set()  # Set to track unique IDs encountered so far
+
+    # List of column names to check (M1 to M10)
+    m_columns = [f'M{i}' for i in range(1, 11)]
+    
+    # Loop over the rows to calculate unique ids
+    for i in range(len(df)):
+        # Extract the relevant columns (M1 to M10)
+        current_ids = set(df.loc[i, m_columns])
+        
+        # Identify new unique IDs for this row (that haven't been seen before)
+        new_unique_ids = current_ids - seen_ids
+        
+        # Update the set of seen IDs with the new unique ones
+        seen_ids.update(new_unique_ids)
+        
+        # Store the count of new unique IDs in the 'Munique' column
+        df.at[i, 'Munique'] = len(new_unique_ids)
+    
+    # Calculate the cumulative sum of the 'Munique' column
+    df['Munique'] #= df['Munique']
+    
+    return df
+
+def plot_unique_ids(df, selection):
+
+    df = calculate_unique_ids(df)
+
+    df['Munique_Cumsum'] = df['Munique'].cumsum()
+
+    # Ensure 'Sim_datetime' is in proper datetime format
+    df['Sim_datetime'] = pd.to_datetime(df['Sim_datetime'])
+
+    # Plot the data
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(df['Sim_datetime'], df['Munique_Cumsum'], marker='o', linestyle='-', color='b', label='Sim_trials')
+
+    # Set title and labels
+    ax.set_title(f"Adding new best models from {selection} simulation", fontsize=9, fontweight='normal', family='Arial')
+    #ax.set_xlabel('Datetime', fontsize=9)
+    ax.set_ylabel('Cumsum', fontsize=9)
+
+    # Rotate the x-axis labels for better readability
+    plt.xticks(rotation=90)
+
+    # Display the plot in Streamlit
+    st.pyplot(fig)
+    plt.close(fig)
+
 
 def plot_signal_chart(df, selection):
     # Blue scale: Light blue for low values, dark blue for high values
@@ -97,7 +170,7 @@ def plot_ohlc_volume(df, selection):
     ax3.grid(True)
     
     # Extract second part of the selection string for the title
-    title_part = extract_second_part(selection)
+    title_part = extract_second_part(selection).upper()
     fig.suptitle(f"{title_part}: OHLC & Volume Chart", fontsize=9, fontweight='normal', family='Arial')
     
     st.pyplot(fig)
