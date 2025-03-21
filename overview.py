@@ -156,7 +156,7 @@ def show_overview_page():
         min_value=12,
         max_value=52,
         value=52,  # default starting value
-        step=step
+        step=1
     )
 
     df_signal = calculate_p_value_rolling(df_signal, signal_threshold=selected_signal, window = selected_window)
