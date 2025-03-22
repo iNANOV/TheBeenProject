@@ -42,6 +42,8 @@ def authenticate_user(username, password):
 
 st.title("Login Page")
 
+st.image("been.png", use_container_width=True)
+
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
