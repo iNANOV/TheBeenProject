@@ -40,7 +40,7 @@ def authenticate_user(username, password):
         return True
     return False
 
-st.title("Login Page")
+st.title("The Been Project")
 
 st.image("been.png", use_container_width=True)
 
@@ -59,7 +59,7 @@ if not st.session_state["authenticated"]:
             st.error("Invalid username or password")
 
 if st.session_state["authenticated"]:
-    st.title("Dashboard")
+    #st.title("Dashboard")
 
     #mt.set_theme("economist")
 
