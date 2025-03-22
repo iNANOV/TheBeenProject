@@ -22,3 +22,4 @@ tmp/
 # Ignore files
 develop.py.venv
 .venv/
+.devcontainer/
