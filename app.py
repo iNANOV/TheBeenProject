@@ -13,10 +13,6 @@ from functions import *
 from overview import show_overview_page
 from simulate import show_simulate_page
 
-# Set the theme
-#mt.set_theme("yellowish")
-
-
 # Streamlit Login System
 usr = st.secrets["mongodb"]["usr"]
 pwd = st.secrets["mongodb"]["pwd"]
@@ -33,7 +29,7 @@ def get_db_client():
 db = get_db_client()
 users_collection = db["users"]  # Users collection
 
-# Streamlit Login System
+# Function to authenticate users
 def authenticate_user(username, password):
     user = users_collection.find_one({"username": username})
     if user and check_password_hash(user["password"], password):
@@ -41,42 +37,39 @@ def authenticate_user(username, password):
     return False
 
 st.title("The Been Project")
-
 st.image("been.png", use_container_width=True)
 
+# Initialize session state
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
+if "username" not in st.session_state:
+    st.session_state["username"] = None  # Store username globally
 
+# Login system
 if not st.session_state["authenticated"]:
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
         if authenticate_user(username, password):
             st.session_state["authenticated"] = True
+            st.session_state["username"] = username  # Store username
             st.success("Login successful!")
             st.rerun()
         else:
             st.error("Invalid username or password")
 
+# If authenticated, show the main content
 if st.session_state["authenticated"]:
-    #st.title("Dashboard")
-
-    #mt.set_theme("economist")
-
-    # List of available themes from morethemes
+    # Sidebar customization
+    st.sidebar.title("Customization")
     available_themes = [
         "economist", "wsj", "urban", "minimal", "ft", 
         "nature", "retro", "yellowish", "darker", "monoblue"
     ]
-
-    # Sidebar for theme selection
-    st.sidebar.title("Customization")
     selected_theme = st.sidebar.selectbox("Choose a Matplotlib Theme", available_themes, index=0)
-
-    # Apply the selected theme
     mt.set_theme(selected_theme)
 
-    # Set up the sidebar with page selection
+    # Sidebar navigation
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Go to", ["Overview", "Simulate"])
 
@@ -85,5 +78,3 @@ if st.session_state["authenticated"]:
         show_overview_page()
     elif page == "Simulate":
         show_simulate_page()
-
-    

@@ -49,6 +49,18 @@ def show_overview_page():
     # Retrieve the selected model data
     try:
         data = db.Models.find_one({"_id": ObjectId(selected_model_id)}, {"Now": 1, "_id": 0})
+
+        id_y = pd.DataFrame(list(db.Models.find({"_id": ObjectId(selected_model_id)}, {"ID_Y"})))["ID_Y"][0]
+
+        id_y_omega =  pd.DataFrame(list(db.Y_opt.find({"_id": ObjectId(id_y)}, {"ID_Y_Omega"})))["ID_Y_Omega"][0]
+
+        id_y_k = pd.DataFrame(list(db.Y_opt.find({"_id": ObjectId(id_y_omega)}, {"ID_Y_k"})))["ID_Y_k"][0]
+
+        # retrieve last sli and slo from data
+
+        # retrieve k* using id_y_k
+        k_opt = 4 
+
         if not data or "Now" not in data:
             st.error("No data found for the selected model.")
             st.stop()
@@ -69,39 +81,63 @@ def show_overview_page():
     # calculate weighted balanced Signal
     df = calculate_balanced_signal(df)
 
-    st.write(df)
+    # calculate weighted balanced Signal not weighted
+    df = calculate_balanced_not_weighted_signal(df)
 
-    plot_line_with_dots(df, selected_model)
+    # add k_low column
+    df = add_k_low(df, k = k_opt)
 
-    plot_unique_ids(df, selected_model)
+    #st.write(df)
 
-    df_f = df.copy()
+    if "username" in st.session_state and st.session_state["username"] == "user1":
 
-    # Step 1: Retrieve the '_id' and 'pycaret_function' from the Models collection in MongoDB
-    model_mapping = pd.DataFrame(list(db.Models.find({}, {"_id": 1, "pycaret_function": 1})))
+        plot_line_with_dots(df, selected_model)
 
-    # Step 2: Convert the retrieved data into a dictionary for fast lookups (_id -> pycaret_function)
-    function_lookup = dict(zip(model_mapping["_id"], model_mapping["pycaret_function"]))
+        plot_unique_ids(df, selected_model)
 
-    # Step 3: Loop through columns M1 to M10 in df, and map the corresponding pycaret_function to new columns F1 to F10
-    for i in range(1, 11):  # Loop over M1 to M10
-        df_f[f"F{i}"] = df[f"M{i}"].map(function_lookup)  # Map each M{i} column to the corresponding pycaret_function
+        df_f = df.copy()
 
-    # Ensure the 'date' column stays as a date (not datetime)
-    #df['date'] = pd.to_datetime(df['date']).dt.date
+        # Step 1: Retrieve the '_id' and 'pycaret_function' from the Models collection in MongoDB
+        model_mapping = pd.DataFrame(list(db.Models.find({}, {"_id": 1, "pycaret_function": 1})))
+
+        # Step 2: Convert the retrieved data into a dictionary for fast lookups (_id -> pycaret_function)
+        function_lookup = dict(zip(model_mapping["_id"], model_mapping["pycaret_function"]))
+        
+        # Step 3: Loop through columns M1 to M10 in df, and map the corresponding pycaret_function to new columns F1 to F10
+        for i in range(1, 11):  # Loop over M1 to M10
+            df_f[f"F{i}"] = df[f"M{i}"].map(function_lookup)  # Map each M{i} column to the corresponding pycaret_function
+
+        plot_function_value_distribution_by_date(df_f, selected_model)
+
+    # Define the k_opt variable
+    # k_opt = 4  # You can change this value as needed
+
+    with st.expander("ℹ️ Explanation: Signal (Click to Expand)"):
+        st.markdown(f"""
+        ### 📈 What is a Signal?  
+
+        **Signal** is the forecasting trigger used for trading decisions. Here's how it works:
+
+        - When **Signal > 0**, the recommendation is to **buy** on the next working day (usually Monday) at the **open price**.
+        - The trade is **held** for a maximum of **{k_opt} weeks** (until one of the following scenarios occurs):
+            - **Stop limit** at **0.041**  
+            - **Stop loss** at **0.21**  
+            - The **close price** on the last working week day (usually Friday).
+
+        #### 📝 Example:
+        - **Signal > 0** on **5th January 2024** → **Buy on 8th January** (Monday) at the open price  
+        - **Sell latest on 2nd February 2024** at close price (if stop limit or stop loss were not reached during the {k_opt} weeks)
+
+        📌 **Note:** This methodology is used for trading based on predicted market movements, with clear exit strategies to limit losses or lock in profits.
+        """)
 
 
-    plot_function_value_distribution_by_date(df_f, selected_model)
 
     df_signal, signal_type = select_signal_type(df)
 
-    #df['date'] = pd.to_datetime(df['date']).dt.date
-
-    #df_signal['date'] = pd.to_datetime(df_signal['date']).dt.date
-
     # Display results in Streamlit
     st.write(f"Selected Signal Type: {signal_type}")
-    st.dataframe(df_signal)
+    #st.dataframe(df_signal)
 
     plot_signal_chart(df_signal, selected_model, signal_type)
 
@@ -164,7 +200,7 @@ def show_overview_page():
     # filter out the forecasts
     df_signal_filtered = df_signal.query("not (Target == 0 and R_t == 0)")
 
-    st.dataframe(df_signal_filtered)
+   # st.dataframe(df_signal_filtered)
 
     plot_p_value(df_signal_filtered, selected_model, signal_threshold=selected_signal, window = selected_window)
 
@@ -187,8 +223,13 @@ def show_overview_page():
 
     st.divider()  # Adds a separation line
 
-
     plot_win_rate(df_signal_filtered, selected_model, signal_threshold=selected_signal, window = selected_window)
+
+    if "username" in st.session_state and st.session_state["username"] == "user1":
+        for col in [f"M{i}" for i in range(1, 11)]:
+            df_signal[col] = df_signal[col].astype(str)
+
+        st.dataframe(df_signal)
 
     st.markdown("<hr><p style='text-align:center;'>Data source: Yahoo Finance</p>", unsafe_allow_html=True)
 
