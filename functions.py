@@ -164,7 +164,7 @@ def plot_line_with_dots(df, selection):
     ax.plot(df['Sim_datetime'], df['Sim_trials'], marker='o', linestyle='-', color='b', label='Sim_trials')
 
     # Set title and labels
-    ax.set_title(f"Simulation {selection} progressing till adding new best models", fontsize=9, fontweight='normal', family='Arial')
+    ax.set_title(f"Simulation {selection} progressing till adding new best models", fontsize=9, fontweight='normal', family='sans-serif')
     #ax.set_xlabel('Datetime', fontsize=9)
     ax.set_ylabel('Simulation Trials', fontsize=9)
 
@@ -216,7 +216,7 @@ def plot_unique_ids(df, selection):
     ax.plot(df['Sim_datetime'], df['Munique_Cumsum'], marker='o', linestyle='-', color='b', label='Sim_trials')
 
     # Set title and labels
-    ax.set_title(f"Adding new best models from {selection} simulation", fontsize=9, fontweight='normal', family='Arial')
+    ax.set_title(f"Adding new best models from {selection} simulation", fontsize=9, fontweight='normal', family='sans-serif')
     #ax.set_xlabel('Datetime', fontsize=9)
     ax.set_ylabel('Cumsum', fontsize=9)
 
@@ -250,7 +250,7 @@ def plot_function_value_distribution_by_date(df, selection):
     ax.legend(handles, labels, title="Method", loc='upper left')
 
     # Set title and labels
-    ax.set_title(f"Method Value Distribution over Time for {selection}", fontsize=9, fontweight='normal', family='Arial')
+    ax.set_title(f"Method Value Distribution over Time for {selection}", fontsize=9, fontweight='normal', family='sans-serif')
     
     # Remove x-axis label
     ax.set_xlabel('')  # This removes the label
@@ -291,8 +291,8 @@ def plot_signal_chart(df, selection, signal):
     ax1.tick_params(labelsize=9)
     ax1.grid(True)
     ax1.set_xlabel("")
-    ax1.set_ylabel("R_t", fontsize=9, fontweight='normal', family='Arial')
-    ax1.set_title(f"Master model based on {selection} simulation / {signal}", fontsize=9, fontweight='normal', family='Arial')
+    ax1.set_ylabel("R_t", fontsize=9, fontweight='normal', family='sans-serif')
+    ax1.set_title(f"Master model based on {selection} simulation / {signal}", fontsize=9, fontweight='normal', family='sans-serif')
     
     # Add a color bar (legend) for Signal
     sm = plt.cm.ScalarMappable(cmap=bar_cmap, norm=norm)
@@ -382,7 +382,7 @@ def plot_ohlc_volume_last_used(df, selection, signal, signal_threshold=0):
                 s=30, edgecolors='black', alpha=0.8)
 
     # Formatting for OHLC plot
-    ax2.set_ylabel("Price", fontsize=9, fontweight='normal', family='Arial')
+    ax2.set_ylabel("Price", fontsize=9, fontweight='normal', family='sans-serif')
     ax2.xaxis.set_major_locator(mdates.MonthLocator())
     ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
     ax2.tick_params(axis='x', rotation=90, labelsize=9)
@@ -393,8 +393,8 @@ def plot_ohlc_volume_last_used(df, selection, signal, signal_threshold=0):
     for bar in ax3.patches:
         bar.set_width(0.4)
 
-    ax3.set_xlabel("", fontsize=9, fontweight='normal', family='Arial')  # Removed 'Date' label
-    ax3.set_ylabel("Volume", fontsize=9, fontweight='normal', family='Arial')
+    ax3.set_xlabel("", fontsize=9, fontweight='normal', family='sans-serif')  # Removed 'Date' label
+    ax3.set_ylabel("Volume", fontsize=9, fontweight='normal', family='sans-serif')
     ax3.tick_params(axis='both', labelsize=9)
     ax3.tick_params(axis='x', rotation=90)
     ax3.grid(True)
@@ -407,7 +407,7 @@ def plot_ohlc_volume_last_used(df, selection, signal, signal_threshold=0):
 
     # Extract second part of the selection string for the title
     title_part = selection.split("_")[-1].upper()
-    fig.suptitle(f"{title_part}: OHLC & Volume Chart / {signal} >= {signal_threshold}", fontsize=9, fontweight='normal', family='Arial')
+    fig.suptitle(f"{title_part}: OHLC & Volume Chart / {signal} >= {signal_threshold}", fontsize=9, fontweight='normal', family='sans-serif')
 
     # Add color bar for Signal (on the right of the first plot)
     sm_signal = ScalarMappable(cmap=bar_cmap_signal, norm=norm_signal)
@@ -496,7 +496,7 @@ def plot_ohlc_volume(df, selection, signal, signal_threshold=0):
                 s=30, edgecolors='black', alpha=0.8)
 
     # Formatting for OHLC plot
-    ax2.set_ylabel("Price", fontsize=9, fontweight='normal', family='Arial')
+    ax2.set_ylabel("Price", fontsize=9, fontweight='normal', family='sans-serif')
     ax2.xaxis.set_major_locator(mdates.MonthLocator())
     ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
     ax2.tick_params(axis='x', rotation=90, labelsize=9)
@@ -507,14 +507,14 @@ def plot_ohlc_volume(df, selection, signal, signal_threshold=0):
     for bar in ax3.patches:
         bar.set_width(0.4)
 
-    ax3.set_ylabel("Volume", fontsize=9, fontweight='normal', family='Arial')
+    ax3.set_ylabel("Volume", fontsize=9, fontweight='normal', family='sans-serif')
     ax3.tick_params(axis='both', labelsize=9)
     ax3.tick_params(axis='x', rotation=90)
     ax3.grid(True)
 
     # Extract title part
     title_part = selection.split("_")[-1].upper()
-    fig.suptitle(f"{title_part}: OHLC & Volume Chart / {signal} >= {signal_threshold}", fontsize=9, fontweight='normal', family='Arial')
+    fig.suptitle(f"{title_part}: OHLC & Volume Chart / {signal} >= {signal_threshold}", fontsize=9, fontweight='normal', family='sans-serif')
 
     # Add color bar for Signal
     sm_signal = ScalarMappable(cmap=bar_cmap_signal, norm=norm_signal)
@@ -600,7 +600,7 @@ def plot_p_value(df, selection, signal_threshold, window):
     plt.axhline(y=0.05, color='red', linestyle='--', linewidth=1, label="Threshold (0.05)")
 
     # Set title and labels
-    ax.set_title(f"Simulation {selection} signal_threshold : {signal_threshold} / window {window}", fontsize=9, fontweight='normal', family='Arial')
+    ax.set_title(f"Simulation {selection} signal_threshold : {signal_threshold} / window {window}", fontsize=9, fontweight='normal', family='sans-serif')
     #ax.set_xlabel('Datetime', fontsize=9)
     ax.set_ylabel('p-value', fontsize=9)
 
@@ -618,7 +618,7 @@ def plot_win_rate(df, selection, signal_threshold, window):
     plt.axhline(y=0.5, color='red', linestyle='--', linewidth=1, label="Threshold (0.5)")
 
     # Set title and labels
-    ax.set_title(f"Simulation {selection} signal_threshold : {signal_threshold} / window {window}", fontsize=9, fontweight='normal', family='Arial')
+    ax.set_title(f"Simulation {selection} signal_threshold : {signal_threshold} / window {window}", fontsize=9, fontweight='normal', family='sans-serif')
     #ax.set_xlabel('Datetime', fontsize=9)
     ax.set_ylabel('win rate', fontsize=9)
 
