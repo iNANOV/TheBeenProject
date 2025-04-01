@@ -20,4 +20,6 @@ logs/
 tmp/
 
 # Ignore files
-develop.py
+develop.py.venv
+.venv/
+.devcontainer/
