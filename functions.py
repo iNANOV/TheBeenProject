@@ -45,7 +45,7 @@ def add_k_low(df, k):
 
 def calculate_weighted_signal(df):
     # Select S1 to S10 columns
-    S_columns = df.filter(regex="^S\d+")
+    S_columns = df.filter(regex=r"^S\d+")
     
     # Number of S columns
     num_S = S_columns.shape[1]
@@ -76,7 +76,7 @@ def calculate_balanced_signal(df):
         raise ValueError(f"Missing required columns: {missing_cols}")
     
     # Select S1 to S10 columns
-    S_columns = df.filter(regex="^S\d+")
+    S_columns = df.filter(regex=r"^S\d+")
     
     # Number of S columns (should be 10 for S1 to S10)
     num_S = S_columns.shape[1]
@@ -110,7 +110,7 @@ def calculate_balanced_not_weighted_signal(df):
         raise ValueError(f"Missing required columns: {missing_cols}")
     
     # Select S1 to S10 columns
-    S_columns = df.filter(regex="^S\d+")
+    S_columns = df.filter(regex=r"^S\d+")
     
     # Number of S columns (should be 10 for S1 to S10)
     num_S = S_columns.shape[1]
@@ -323,6 +323,7 @@ def extract_second_part(selection: str) -> str:
     """Extracts the second part of a string separated by underscores."""
     parts = selection.split("_")
     return parts[1] if len(parts) > 1 else selection  # Default to full string if no underscores
+
 
 def plot_ohlc_volume_last_used(df, selection, signal, signal_threshold=0):
     """Plots OHLC and volume charts with round dots below lows, colored based on Signal values.

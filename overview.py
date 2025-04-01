@@ -73,7 +73,7 @@ def show_overview_page():
     st.write(f"Showing data for: **{selected_model}**")
 
     # calculate simple Signal
-    df["Signal_simple"] = df.filter(regex="^S\d+").apply(pd.to_numeric, errors="coerce").sum(axis=1)
+    df["Signal_simple"] = df.filter(regex=r"^S\d+").apply(pd.to_numeric, errors="coerce").sum(axis=1)
 
     # calculate weighted average Signal
     df = calculate_weighted_signal(df)
