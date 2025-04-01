@@ -18,6 +18,8 @@ pwd = st.secrets["mongodb"]["pwd"]
 url = st.secrets["mongodb"]["url"]
 database = st.secrets["mongodb"]["database"]
 
+master = st.secrets["users"]["master"]
+
 # MongoDB connection
 @st.cache_resource
 def get_db_client():
@@ -89,7 +91,7 @@ def show_overview_page():
 
     #st.write(df)
 
-    if "username" in st.session_state and st.session_state["username"] == "user1":
+    if "username" in st.session_state and st.session_state["username"] == master:
 
         plot_line_with_dots(df, selected_model)
 
@@ -225,7 +227,7 @@ def show_overview_page():
 
     plot_win_rate(df_signal_filtered, selected_model, signal_threshold=selected_signal, window = selected_window)
 
-    if "username" in st.session_state and st.session_state["username"] == "user1":
+    if "username" in st.session_state and st.session_state["username"] == master:
         for col in [f"M{i}" for i in range(1, 11)]:
             df_signal[col] = df_signal[col].astype(str)
 
