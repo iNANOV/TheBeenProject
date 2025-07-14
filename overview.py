@@ -83,11 +83,39 @@ def show_overview_page():
     # calculate weighted balanced Signal
     df = calculate_balanced_signal(df)
 
+    # calculate weighted balanced Signal excluding R
+    df = calculate_balanced_signal_excl_R(df)
+
     # calculate weighted balanced Signal not weighted
     df = calculate_balanced_not_weighted_signal(df)
 
+    # calculate weighted balanced Signal not weighted excluding R
+    df = calculate_balanced_not_weighted_signal_excl_R(df)
+
+    # calculate mean winrate
+    #df = calculate_mean_winrate(df)
+
+    # in case  R_i < 0
+   # if max(df['Signal_balanced']) == 0:
+    #    df['Signal_balanced'] = df["Signal_balanced"] * -1
+
+    #if max(df['Signal_balanced_nw']) == 0:
+     #   df['Signal_balanced_nw'] = df["Signal_balanced"] * -1
+
     # add k_low column
-    df = add_k_low(df, k = k_opt)
+    #df = add_k_low(df, k = k_opt)
+
+     # add k_high column
+    #df = add_k_high(df, k = k_opt)
+
+    # Assume selected_model is something like 'call_gspc_compare' or 'put_something_else'
+    if selected_model.startswith("call"):
+        df = add_k_low(df, k=k_opt)
+    elif selected_model.startswith("put"):
+        df = add_k_high(df, k=k_opt)
+    else:
+        raise ValueError(f"Invalid model type in selected_model: {selected_model}")
+
 
     #st.write(df)
 
@@ -133,8 +161,6 @@ def show_overview_page():
         📌 **Note:** This methodology is used for trading based on predicted market movements, with clear exit strategies to limit losses or lock in profits.
         """)
 
-
-
     df_signal, signal_type = select_signal_type(df)
 
     # Display results in Streamlit
@@ -148,21 +174,69 @@ def show_overview_page():
     max_signal =  df_signal["Signal"].max()#float(df_signal["Signal"].max())
     signal_range = max_signal - min_signal
 
+    # First Signal where all R_t are getting positive 
+    min_pos_signal = find_min_signal_threshold(df_signal)
+
+    if min_pos_signal == None:
+        min_pos_signal = min_signal
+    else:
+        min_pos_signal = min_pos_signal
+    
     # Determine a step size based on the range:
-    if signal_range == 10:
+    #if signal_range == 10:
+    if isinstance(signal_range, np.integer):
+        print("here")
         step = 1
+        min_signal = int(min_signal)
+        max_signal = int(max_signal)
+        min_pos_signal = int(min_pos_signal)
+
     else:
         step = 0.001
+        min_signal = float(min_signal)
+        max_signal = float(max_signal)
+        min_pos_signal = float(min_pos_signal)
+
+    print("min signal: " + str(min_signal))
+    print("max signal: " + str(max_signal))
+
+    # Extendible Info Box for Slider
+    with st.expander("ℹ️ Explanation: Slider 'Select a Signal Value'"):
+        st.markdown(
+            """
+            🔧 **What is the Slider?**
+            
+            The slider allows you to dynamically select a **Signal value** within the range of your data (i.e., from the minimum to maximum Signal value). The selected value can be used for filtering or setting the Signal threshold.
+            
+            ### **How does it work?**
+            1. **Signal Range Calculation**:
+            - The range of values for the Signal is determined by finding the **minimum** and **maximum** values of the `Signal`.
+            
+            2. **Step Size**:
+            - The slider's step size is determined dynamically based on the Signal range:
+                - **If the range is 10**, the step size is **1**.
+                - **Otherwise**, the step size is **0.001** for more granular selection.
+            
+            3. **Slider Configuration**:
+            - The slider allows the user to select a value within the calculated Signal range.
+            - The **default value** is set to the **first Signal value** where **all `R_t` values are greater than or equal to 0**.
+            - The slider is displayed with a step size and formatted to show **3 decimal places**.
+            """
+        )
 
     # Create a single-value slider with a dynamic step size
     selected_signal = st.slider(
         "Select a Signal Value",
         min_value=min_signal,
         max_value=max_signal,
-        value=min_signal,  # default starting value
+        value = min_pos_signal,  # default starting value
         step=step,
         format="%.3f"  # display three decimal places
     )
+
+    #a1 = df_signal.loc[(df_signal["R_t"] > 0) & (df_signal["Signal"] > 0), ["date", "R_t", "Signal"]]
+
+    #st.dataframe(a1)
 
     plot_ohlc_volume(df_signal, selected_model, signal_type, signal_threshold=selected_signal)
 
@@ -180,10 +254,8 @@ def show_overview_page():
 
         #### 🧮 Formula:  
         ```
-        p = hypergeom.sf(k-1, N, K, n_draws)
-        ```
+        p = hypergeom.sf(k-1, N, K, n_draws)      ```
 
-        📌 **Stored in column:** `"p"`
         """)
 
     st.divider()  # Adds a separation line
@@ -232,6 +304,8 @@ def show_overview_page():
             df_signal[col] = df_signal[col].astype(str)
 
         st.dataframe(df_signal)
+
+        st.dataframe(df_signal[["date", "R_t", "Signal"]].assign(R_t=df_signal["R_t"].round(3)))
 
     st.markdown("<hr><p style='text-align:center;'>Data source: Yahoo Finance</p>", unsafe_allow_html=True)
 

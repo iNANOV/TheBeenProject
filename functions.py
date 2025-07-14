@@ -43,6 +43,33 @@ def add_k_low(df, k):
     df['k_low'] = results
     return df
 
+def add_k_high(df, k):
+    """
+    For each row t in df, compute:
+       k_high_t = (max(high_{t+1}, ..., high_{t+k}) - open_{t+1}) / open_{t+1}
+    and add the result as a new column 'k_high'.
+    If there are fewer than k rows after t, the result is NaN.
+    
+    Parameters:
+      df : pandas DataFrame with columns 'date', 'open', and 'high'
+      k  : int, the number of future rows to include in the calculation
+    
+    Returns:
+      The DataFrame with an added 'k_high' column.
+    """
+    results = []
+    n = len(df)
+    for t in range(n):
+        if t + k < n:
+            window = df['high'].iloc[t+1:t+k+1]
+            open_next = df['open'].iloc[t+1]
+            k_high = (window.max() - open_next) / open_next
+            results.append(k_high)
+        else:
+            results.append(np.nan)
+    df['k_high'] = results
+    return df
+
 def calculate_weighted_signal(df):
     # Select S1 to S10 columns
     S_columns = df.filter(regex=r"^S\d+")
@@ -69,8 +96,9 @@ def calculate_balanced_signal(df):
     required_S_cols = {f"S{i}" for i in range(1, 11)}
     required_N_cols = {f"N{i}" for i in range(1, 11)}
     required_R_cols = {f"R{i}" for i in range(1, 11)}
+    required_W_cols = {f"W{i}" for i in range(1, 11)}
     
-    required_cols = required_S_cols | required_N_cols | required_R_cols
+    required_cols = required_S_cols | required_N_cols | required_R_cols | required_W_cols
     if not required_cols.issubset(df.columns):
         missing_cols = required_cols - set(df.columns)
         raise ValueError(f"Missing required columns: {missing_cols}")
@@ -89,7 +117,7 @@ def calculate_balanced_signal(df):
     
     # Compute weighted sum for all S1 to S10
     signal_balanced = sum(
-        df[f"S{i}"] * (df[f"N{i}"] / 52) * df[f"R{i}"] * weights[i-1]
+        df[f"S{i}"] * (df[f"N{i}"] / 52) * df[f"R{i}"] * weights[i-1] * df[f"W{i}"]
         for i in range(1, num_S + 1)
     )
     
@@ -98,13 +126,48 @@ def calculate_balanced_signal(df):
     
     return df
 
+def calculate_balanced_signal_excl_R(df):
+    # Ensure required columns exist
+    required_S_cols = {f"S{i}" for i in range(1, 11)}
+    required_N_cols = {f"N{i}" for i in range(1, 11)}
+    required_W_cols = {f"W{i}" for i in range(1, 11)}
+    
+    required_cols = required_S_cols | required_N_cols | required_W_cols
+    if not required_cols.issubset(df.columns):
+        missing_cols = required_cols - set(df.columns)
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Select S1 to S10 columns
+    S_columns = df.filter(regex=r"^S\d+")
+    
+    # Number of S columns (should be 10 for S1 to S10)
+    num_S = S_columns.shape[1]
+    
+    # Create exponential weights (S1 has highest weight, S10 lowest)
+    weights = np.array([0.9 ** (i-1) for i in range(1, num_S+1)])
+    
+    # Normalize weights so they sum to 1 (optional, to keep scale consistent)
+    weights /= weights.sum()
+    
+    # Compute weighted sum for all S1 to S10
+    signal_balanced_excl_R = sum(
+        df[f"S{i}"] * (df[f"N{i}"] / 52) * weights[i-1] * df[f"W{i}"]
+        for i in range(1, num_S + 1)
+    )
+    
+    # Store result in the dataframe
+    df["Signal_balanced_excl_R"] = signal_balanced_excl_R
+    
+    return df
+
 def calculate_balanced_not_weighted_signal(df):
     # Ensure required columns exist
     required_S_cols = {f"S{i}" for i in range(1, 11)}
     required_N_cols = {f"N{i}" for i in range(1, 11)}
     required_R_cols = {f"R{i}" for i in range(1, 11)}
+    required_W_cols = {f"W{i}" for i in range(1, 11)}
     
-    required_cols = required_S_cols | required_N_cols | required_R_cols
+    required_cols = required_S_cols | required_N_cols | required_R_cols | required_W_cols
     if not required_cols.issubset(df.columns):
         missing_cols = required_cols - set(df.columns)
         raise ValueError(f"Missing required columns: {missing_cols}")
@@ -123,13 +186,66 @@ def calculate_balanced_not_weighted_signal(df):
     
     # Compute weighted sum for all S1 to S10
     signal_balanced_nw = sum(
-        df[f"S{i}"] * (df[f"N{i}"] / 52) * df[f"R{i}"] 
+        df[f"S{i}"] * (df[f"N{i}"] / 52) * df[f"R{i}"] * df[f"W{i}"] 
         for i in range(1, num_S + 1)
     )
     
     # Store result in the dataframe
     df["Signal_balanced_nw"] = signal_balanced_nw
     
+    return df
+
+def calculate_balanced_not_weighted_signal_excl_R(df):
+    # Ensure required columns exist
+    required_S_cols = {f"S{i}" for i in range(1, 11)}
+    required_N_cols = {f"N{i}" for i in range(1, 11)}
+    required_W_cols = {f"W{i}" for i in range(1, 11)}
+    
+    required_cols = required_S_cols | required_N_cols | required_W_cols 
+    if not required_cols.issubset(df.columns):
+        missing_cols = required_cols - set(df.columns)
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Select S1 to S10 columns
+    S_columns = df.filter(regex=r"^S\d+")
+    
+    # Number of S columns (should be 10 for S1 to S10)
+    num_S = S_columns.shape[1]
+    
+    # Create exponential weights (S1 has highest weight, S10 lowest)
+    #weights = np.array([0.9 ** (i-1) for i in range(1, num_S+1)])
+    
+    # Normalize weights so they sum to 1 (optional, to keep scale consistent)
+    #weights /= weights.sum()
+    
+    # Compute weighted sum for all S1 to S10
+    signal_balanced_nw_excl_R = sum(
+        df[f"S{i}"] * (df[f"N{i}"] / 52) * df[f"W{i}"] 
+        for i in range(1, num_S + 1)
+    )
+    
+    # Store result in the dataframe
+    df["Signal_balanced_nw_excl_R"] = signal_balanced_nw_excl_R
+    
+    return df
+
+def calculate_mean_winrate(df):
+    # Ensure required columns exist
+    required_W_cols = {f"W{i}" for i in range(1, 11)}
+    
+    if not required_W_cols.issubset(df.columns):
+        missing_cols = required_W_cols - set(df.columns)
+        raise ValueError(f"Missing required columns: {missing_cols}")
+    
+    # Number of S columns (assumed 10)
+    num_S = 10
+
+    # Compute mean of row-wise sum across W1 to W10
+    signal_mean_winrate = df[[f"W{i}" for i in range(1, num_S + 1)]].sum(axis=1).mean()
+    
+    # Store result in the DataFrame
+    df["Signal_mean_winrate"] = signal_mean_winrate
+
     return df
 
 def select_signal_type(df):
@@ -227,6 +343,32 @@ def plot_unique_ids(df, selection):
     st.pyplot(fig)
     plt.close(fig)
 
+def find_min_signal_threshold(df: pd.DataFrame) -> float:
+    """
+    Finds the minimal threshold for the Signal column such that all R_t values corresponding to Signal >= threshold are >= 0.
+    
+    Parameters:
+    - df (pd.DataFrame): The input DataFrame containing Signal and R_t columns.
+
+    Returns:
+    - float: The minimal threshold for Signal such that all R_t values corresponding to Signal >= threshold are >= 0.
+    """
+    
+    # Get unique sorted Signal values in ascending order
+    unique_signals = sorted(df['Signal'].unique())
+
+    # Iterate through the unique signal values
+    for threshold in unique_signals:
+        # Filter the DataFrame where Signal >= threshold
+        filtered_df = df[df['Signal'] >= threshold]
+        
+        # Check if all R_t values for this threshold are >= 0
+        if (filtered_df['R_t'] >= 0).all():
+            return threshold
+    
+    # If no threshold is found, return None or handle accordingly
+    return None
+
 def plot_function_value_distribution_by_date(df, selection):
     """Plots how often the function names appear over time for F1 to F10 columns, with consistent colors in the legend."""
     
@@ -306,11 +448,19 @@ def plot_signal_chart(df, selection, signal):
     
     # Add k_low values as red dots. They will be plotted on the same x-axis as the bars.
     # Adjust marker size (s) as needed.
-    ax1.scatter(df["date"], df["k_low"], color='red', marker='o', s=20, zorder=3, label='k_low')
-    
+    #ax1.scatter(df["date"], df["k_low"], color='red', marker='o', s=20, zorder=3, label='k_low')
+
+    # Dynamically determine which column to use for scatter plot
+    if "k_low" in df.columns:
+        ax1.scatter(df["date"], df["k_low"], color='red', marker='o', s=20, zorder=3, label='k_low')
+    elif "k_high" in df.columns:
+        ax1.scatter(df["date"], df["k_high"]*-1, color='red', marker='o', s=20, zorder=3, label='k_high')
+
+        
     # Adding the legend
     handles, labels = ax1.get_legend_handles_labels()
     ax1.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.05, 0.1), ncol=1, fontsize=9, frameon=False)
+   
     
     # Adjust layout to ensure the legend doesn't overlap with the plot
     plt.tight_layout()
@@ -323,7 +473,6 @@ def extract_second_part(selection: str) -> str:
     """Extracts the second part of a string separated by underscores."""
     parts = selection.split("_")
     return parts[1] if len(parts) > 1 else selection  # Default to full string if no underscores
-
 
 def plot_ohlc_volume_last_used(df, selection, signal, signal_threshold=0):
     """Plots OHLC and volume charts with round dots below lows, colored based on Signal values.
