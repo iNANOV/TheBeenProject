@@ -248,7 +248,6 @@ def calculate_mean_winrate(df):
 
     return df
 
-
 def select_signal_type(df):
     # Dynamically find all columns that start with "Signal_"
     signal_columns = [col for col in df.columns if col.startswith("Signal_")]
