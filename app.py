@@ -11,7 +11,8 @@ from bson.objectid import ObjectId
 from werkzeug.security import check_password_hash
 from functions import *
 from overview import show_overview_page
-from simulate import show_simulate_page
+from welcome import show_welcome_page
+from research import show_research_page
 
 # Streamlit Login System
 usr = st.secrets["mongodb"]["usr"]
@@ -45,6 +46,9 @@ if "authenticated" not in st.session_state:
 if "username" not in st.session_state:
     st.session_state["username"] = None  # Store username globally
 
+# Show Welcome page always (outside authentication)
+show_welcome_page()
+
 # Login system
 if not st.session_state["authenticated"]:
     username = st.text_input("Username")
@@ -71,12 +75,12 @@ if st.session_state["authenticated"]:
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to", ["Overview", "Simulate"])
+    page = st.sidebar.radio("Go to", ["Overview", "Research"])
 
     # Show the selected page
     if page == "Overview":
         show_overview_page()
-    elif page == "Simulate":
-        show_simulate_page()
+    elif page == "Research":
+        show_research_page()
 
         
