@@ -11,7 +11,6 @@ from bson.objectid import ObjectId
 from werkzeug.security import check_password_hash
 from functions import *
 
-
 # Streamlit Login System
 usr = st.secrets["mongodb"]["usr"]
 pwd = st.secrets["mongodb"]["pwd"]
@@ -58,10 +57,8 @@ def show_overview_page():
 
         id_y_k = pd.DataFrame(list(db.Y_opt.find({"_id": ObjectId(id_y_omega)}, {"ID_Y_k"})))["ID_Y_k"][0]
 
-        # retrieve last sli and slo from data
-
         # retrieve k* using id_y_k
-        k_opt = 4 
+        k_opt = int(pd.DataFrame(list(db.Y_opt.find({"_id": ObjectId(id_y_k)}, {"Optim": 1})))["Optim"][0][0]["k"])
 
         if not data or "Now" not in data:
             st.error("No data found for the selected model.")
@@ -92,22 +89,6 @@ def show_overview_page():
     # calculate weighted balanced Signal not weighted excluding R
     df = calculate_balanced_not_weighted_signal_excl_R(df)
 
-    # calculate mean winrate
-    #df = calculate_mean_winrate(df)
-
-    # in case  R_i < 0
-   # if max(df['Signal_balanced']) == 0:
-    #    df['Signal_balanced'] = df["Signal_balanced"] * -1
-
-    #if max(df['Signal_balanced_nw']) == 0:
-     #   df['Signal_balanced_nw'] = df["Signal_balanced"] * -1
-
-    # add k_low column
-    #df = add_k_low(df, k = k_opt)
-
-     # add k_high column
-    #df = add_k_high(df, k = k_opt)
-
     # Assume selected_model is something like 'call_gspc_compare' or 'put_something_else'
     if selected_model.startswith("call"):
         df = add_k_low(df, k=k_opt)
@@ -115,9 +96,6 @@ def show_overview_page():
         df = add_k_high(df, k=k_opt)
     else:
         raise ValueError(f"Invalid model type in selected_model: {selected_model}")
-
-
-    #st.write(df)
 
     if "username" in st.session_state and st.session_state["username"] == master:
 
@@ -139,9 +117,6 @@ def show_overview_page():
 
         plot_function_value_distribution_by_date(df_f, selected_model)
 
-    # Define the k_opt variable
-    # k_opt = 4  # You can change this value as needed
-
     with st.expander("ℹ️ Explanation: Signal (Click to Expand)"):
         st.markdown(f"""
         ### 📈 What is a Signal?  
@@ -161,21 +136,79 @@ def show_overview_page():
         📌 **Note:** This methodology is used for trading based on predicted market movements, with clear exit strategies to limit losses or lock in profits.
         """)
 
+    with st.expander("ℹ️ Explanation – Signal Types (Click to Expand)"):
+        st.markdown(f"""
+        ### ⚙️ Overview of Available Signal Calculations
+
+        We generate several flavours of **Signal**, each adding a different layer of information or weighting.  
+        Use the simplest version when you just need a quick market pulse, and the more elaborate versions when you want deeper context.
+
+        #### 1️⃣ `Signal_simple`
+        * **What it is:** A straight count of how many base models (`S1…S10`) fire **positive** at the same time.  
+        * **Interpretation:**  
+        - `0` → no models agree  
+        - `10` → all models agree  
+        * No weighting or scaling—pure consensus.
+
+        ---
+
+        #### 2️⃣ `Signal_weighted`
+        * **Method:** Exponentially‑weighted average of `S1…S10`.  
+        - `S1` gets the highest weight, `S10` the lowest (`0.9⁰, 0.9¹, …`).  
+        * **Use‑case:** Quick composite signal that still emphasises the more reliable early slots.
+
+        ---
+
+        #### 3️⃣ `Signal_balanced`
+        * **Adds three real‑world adjustments** to each `Si` before weighting:  
+        1. **`Nᵢ`** – number of observations that produced `Si` (scaled to yearly frequency).  
+        2. **`Rᵢ`** – _out‑of‑sample return_ historically realised when taking `Si`.  
+        3. **`Wᵢ`** – domain‑specific weight (e.g., asset importance).  
+        * Then applies the same exponential weights as above.  
+        * **Goal:** Reward signals that have fired often **and** paid off in the past.
+
+        ---
+
+        #### 4️⃣ `Signal_balanced_excl_R`
+        * Same as *balanced*, but **omits the `R` component**.  
+        * Choose this when historical return data are missing or deemed noisy.
+
+        ---
+
+        #### 5️⃣ `Signal_balanced_nw`
+        * A “flat” version of *balanced*: **no exponential weights**—all `S1…S10` treated equally.  
+        * Still includes `N`, `R`, and `W`.
+
+        ---
+
+        #### 6️⃣ `Signal_balanced_nw_excl_R`
+        * Like the flat version above, but **drops `R`** as well.  
+        * Useful when you want frequency (`N`) and custom weights (`W`) only.
+
+        ---
+        📌 **Tip:**  
+        *For most production runs, `Signal_balanced` offers the best trade‑off between simplicity and historical effectiveness.  
+        Use `Signal_simple` for a quick sanity check, or when model metadata (`N`, `R`, `W`) are unavailable.*
+        """)
+
+
     df_signal, signal_type = select_signal_type(df)
 
     # Display results in Streamlit
     st.write(f"Selected Signal Type: {signal_type}")
-    #st.dataframe(df_signal)
 
     plot_signal_chart(df_signal, selected_model, signal_type)
 
     # Assume df_signal is your DataFrame with a "Signal" column
-    min_signal = df_signal["Signal"].min()#float(df_signal["Signal"].min())
-    max_signal =  df_signal["Signal"].max()#float(df_signal["Signal"].max())
+    min_signal = df_signal["Signal"].min()
+    max_signal =  df_signal["Signal"].max()
     signal_range = max_signal - min_signal
 
-    # First Signal where all R_t are getting positive 
-    min_pos_signal = find_min_signal_threshold(df_signal)
+    # First Signal threshold where p (HGT) is getting max smaller
+    min_pos_signal, stats = optimize_signal_threshold_by_hypergeometric(df_signal)
+
+    print("Best threshold:", min_pos_signal)
+    print("Stats for best threshold:", stats[min_pos_signal])
 
     if min_pos_signal == None:
         min_pos_signal = min_signal
@@ -219,7 +252,7 @@ def show_overview_page():
             
             3. **Slider Configuration**:
             - The slider allows the user to select a value within the calculated Signal range.
-            - The **default value** is set to the **first Signal value** where **all `R_t` values are greater than or equal to 0**.
+            - The **default value** is set to the **Signal threshold** that **maximizes the frequency of statistically significant associations** between `Signal` and positive `R_t`, based on a rolling *hypergeometric test*.
             - The slider is displayed with a step size and formatted to show **3 decimal places**.
             """
         )
@@ -234,11 +267,7 @@ def show_overview_page():
         format="%.3f"  # display three decimal places
     )
 
-    #a1 = df_signal.loc[(df_signal["R_t"] > 0) & (df_signal["Signal"] > 0), ["date", "R_t", "Signal"]]
-
-    #st.dataframe(a1)
-
-    plot_ohlc_volume(df_signal, selected_model, signal_type, signal_threshold=selected_signal)
+    plot_ohlc_volume(df_signal, selected_model, signal_type, signal_threshold=round(selected_signal,3))
 
     # Add explanation inside an expander
     with st.expander("ℹ️ Explanation: Hypergeometric Test (Click to Expand)"):
@@ -274,11 +303,9 @@ def show_overview_page():
     # filter out the forecasts
     df_signal_filtered = df_signal.query("not (Target == 0 and R_t == 0)")
 
-   # st.dataframe(df_signal_filtered)
+    plot_p_value(df_signal_filtered, selected_model, signal_threshold=round(selected_signal,3), window = selected_window)
 
-    plot_p_value(df_signal_filtered, selected_model, signal_threshold=selected_signal, window = selected_window)
-
-      # Add explanation inside an expander
+    # Add explanation inside an expander
     with st.expander("ℹ️ Explanation: Win rate (Click to Expand)"):
         st.markdown("""
         ### 📊 Rolling Window Calculation  
@@ -297,15 +324,128 @@ def show_overview_page():
 
     st.divider()  # Adds a separation line
 
-    plot_win_rate(df_signal_filtered, selected_model, signal_threshold=selected_signal, window = selected_window)
+    plot_win_rate(df_signal_filtered, df_signal, selected_model, selected_signal, selected_window)
+
+    st.divider()  # Adds a separation line
+
+    # Create a single-value slider with a dynamic step size
+    selected_slo = st.slider(
+        "Stop Loss",
+        min_value=0.001,
+        max_value=max(df_signal["slo"]),
+        value=max(df_signal["slo"]),  # default starting value
+        step=0.01,
+        format="%.3f"  # display three decimal places
+    )
+
+    st.divider()  # Adds a separation line
+
+    # Create a single-value slider with a dynamic step size
+    # --- Extract 'sli' value from df_signal row 0 ---
+    sli_val = None
+    if "sli" in df_signal.columns:
+        sli_val = df_signal["sli"].max()
+    elif "sli1" in df_signal.columns and "sli2" in df_signal.columns:
+        sli_val = max(df_signal["sli1"].max(), df_signal["sli2"].max())
+    else:
+        st.warning("No 'sli', 'sli1', or 'sli2' found in df_signal.")
+        sli_val = 0.1  # fallback default value
+
+    # --- Streamlit slider for 'sli' ---
+    selected_sli = st.slider(
+        "Stop Limit",
+        min_value=0.001,
+        max_value=float(sli_val),
+        value=float(sli_val),  # default to max
+        step=0.001,
+        format="%.3f"
+    )
+
+
+    st.divider()  # Adds a separation line
+
+    # Create a single-value slider with a dynamic step size
+    selected_leverage = st.slider(
+        "Leverage",
+        min_value=1,
+        max_value=25,
+        value=4,  # default starting value
+        step=1
+    )
+
+    st.divider()  # Adds a separation line
+
+    # Create a single-value slider with a dynamic step size
+    selected_cost = st.slider(
+        "Cost for a trade as decimal",
+        min_value=0.0,
+        max_value=0.05,
+        value=0.00624,  # default starting value
+        step=0.00001,
+        format="%.5f"
+    )
+
+    df_bench_result = compute_benchmark_returns(df_signal,
+                                                     selected_leverage, 
+                                                     selected_cost,
+                                                     k_opt,
+                                                     selected_model
+                                                     )
+
+    df_strategy_result = compute_strategy_returns(
+                df_signal,
+                selected_leverage,
+                selected_cost,
+                k_opt,
+                selected_signal,
+                selected_slo,
+                selected_sli,
+                selected_model
+                )
+
+    df_result = pd.merge(
+            df_bench_result,
+            df_strategy_result[["date", "R_t_temp", "R_t_comp"]],
+            on="date",
+            how="left"
+        )
+
+    # Move result values to the time they are realized (t + k_opt)
+    df_result["R_t_bench_temp"] = df_result["R_t_bench_temp"].shift(k_opt)
+    df_result["R_t_bench_comp"] = df_result["R_t_bench_comp"].shift(k_opt)
+    df_result["R_t_temp"] = df_result["R_t_temp"].shift(k_opt)
+    df_result["R_t_comp"] = df_result["R_t_comp"].shift(k_opt)
+    df_result["R_t_comp"] = df_result["R_t_comp"].ffill()
+
+    plot_strategy_vs_benchmark(
+    df_result,
+    selected_model,
+    k_opt,
+    selected_slo,
+    selected_sli,
+    selected_leverage,
+    selected_cost
+    )
+
+    df_strategy_stats = analyze_weekly_returns_df(df_result, selected_signal, return_column="R_t_comp")
+    df_bench_stats = analyze_weekly_returns_df(df_result, return_column="R_t_bench_comp")
+
+    # Combine both for comparison
+    df_comparison = pd.concat([df_strategy_stats, df_bench_stats], axis=1)
+    #st.dataframe(df_comparison)
+
+    plot_metrics_comparison(df_comparison)
 
     if "username" in st.session_state and st.session_state["username"] == master:
         for col in [f"M{i}" for i in range(1, 11)]:
             df_signal[col] = df_signal[col].astype(str)
 
-        st.dataframe(df_signal)
+        df_comparison_reset = df_comparison.reset_index().rename(columns={'index': 'metric'})
+        st.dataframe(df_comparison_reset.round(4))
 
-        st.dataframe(df_signal[["date", "R_t", "Signal"]].assign(R_t=df_signal["R_t"].round(3)))
+        print(df_comparison_reset.round(4))
 
+        st.dataframe(df_result[["date","Target","R_t", "Signal","open","low","high","close","R_t_bench_temp","R_t_bench_comp","R_t_temp","R_t_comp", "p", "N", "K", "n_draws", "k"]])
+     
     st.markdown("<hr><p style='text-align:center;'>Data source: Yahoo Finance</p>", unsafe_allow_html=True)
 

@@ -369,7 +369,112 @@ def find_min_signal_threshold(df: pd.DataFrame) -> float:
     # If no threshold is found, return None or handle accordingly
     return None
 
-def plot_function_value_distribution_by_date(df, selection):
+def find_optimal_signal_threshold_by_rt(df: pd.DataFrame, method: str = "mean") -> float:
+    """
+    Finds the Signal threshold that maximizes R_t (mean or sum) for Signal >= threshold.
+
+    Parameters:
+    - df (pd.DataFrame): DataFrame containing 'Signal' and 'R_t' columns.
+    - method (str): "mean" or "sum" — defines the optimization criterion.
+
+    Returns:
+    - float: Signal threshold that maximizes the chosen R_t aggregate.
+    """
+
+    assert method in {"mean", "sum"}, "method must be either 'mean' or 'sum'"
+
+    # Get unique sorted signal values (ascending)
+    unique_signals = sorted(df["Signal"].unique())
+
+    best_threshold = None
+    best_value = float("-inf")
+
+    for threshold in unique_signals:
+        filtered = df[df["Signal"] >= threshold]
+
+        if not filtered.empty:
+            rt_value = filtered["R_t"].mean() if method == "mean" else filtered["R_t"].sum()
+            if rt_value > best_value:
+                best_value = rt_value
+                best_threshold = threshold
+
+    return best_threshold
+
+def rolling_hypergeometric_pvals(df, window=52, signal_threshold=0.5):
+    """
+    Performs a rolling hypergeometric test.
+
+    Parameters:
+    - df (pd.DataFrame): DataFrame with 'Signal' and 'R_t' columns.
+    - window (int): Rolling window size.
+    - signal_threshold (float): Threshold for Signal to count as a draw.
+
+    Returns:
+    - List of p-values for each window (NaN for early rows).
+    """
+    p_values = [np.nan] * len(df)
+
+    for i in range(window - 1, len(df)):
+        window_df = df.iloc[i - window + 1:i + 1]
+
+        N = len(window_df)
+        K = (window_df["R_t"] > 0).sum()
+        n_draws = (window_df["Signal"] >= signal_threshold).sum()
+        k = ((window_df["Signal"] >= signal_threshold) & (window_df["R_t"] > 0)).sum()
+
+        # Hypergeometric test: probability of ≥ k successes in n_draws given population of N with K successes
+        if N > 0 and K > 0 and n_draws > 0:
+            p_val = hypergeom.sf(k - 1, N, K, n_draws)
+        else:
+            p_val = np.nan
+
+        p_values[i] = p_val
+
+    return p_values
+
+def optimize_signal_threshold_by_hypergeometric(df, window=52, signal_range=None, alpha_threshold=0.05):
+    """
+    Optimizes Signal threshold to minimize p-values over rolling hypergeometric tests.
+
+    Parameters:
+    - df (pd.DataFrame): DataFrame with 'Signal' and 'R_t' columns.
+    - window (int): Rolling window size.
+    - signal_range (list or None): List of candidate signal thresholds (default: all unique Signal values).
+    - alpha_threshold (float): p-value threshold to count as "significant".
+
+    Returns:
+    - float: Optimal signal threshold.
+    - dict: Summary stats per threshold.
+    """
+    if signal_range is None:
+        signal_range = sorted(df['Signal'].unique())
+
+    best_threshold = None
+    best_score = -1
+    results = {}
+
+    for threshold in signal_range:
+        p_vals = rolling_hypergeometric_pvals(df, window=window, signal_threshold=threshold)
+        p_vals = np.array(p_vals)
+
+        # Count how often p-value is below the significance level
+        significant_count = np.sum((p_vals < alpha_threshold) & ~np.isnan(p_vals))
+        total_tested = np.sum(~np.isnan(p_vals))
+        ratio_significant = significant_count / total_tested if total_tested > 0 else 0
+
+        results[threshold] = {
+            "significant_count": significant_count,
+            "total_windows": total_tested,
+            "ratio_significant": ratio_significant
+        }
+
+        if ratio_significant > best_score:
+            best_score = ratio_significant
+            best_threshold = threshold
+
+    return best_threshold, results
+
+def plot_function_value_distribution_by_date_old(df, selection):
     """Plots how often the function names appear over time for F1 to F10 columns, with consistent colors in the legend."""
     
     # Ensure 'date' is in datetime format
@@ -406,7 +511,62 @@ def plot_function_value_distribution_by_date(df, selection):
     st.pyplot(fig)
     plt.close(fig)
 
-def plot_signal_chart(df, selection, signal):
+def plot_function_value_distribution_by_date(df, selection):
+    """Plots how often the function names appear over time for F1 to F10 columns, with consistent colors in the legend."""
+
+    import matplotlib.dates as mdates
+    from matplotlib.cm import get_cmap
+
+    # Ensure 'date' is in datetime format
+    df['date'] = pd.to_datetime(df['date'])
+
+    # Melt the dataframe to combine all F1 to F10 into one column
+    melted_df = df.melt(
+        id_vars=['date'],
+        value_vars=[f'F{i}' for i in range(1, 11)],
+        var_name='F_column',
+        value_name='Function'
+    )
+
+    # Count occurrences of each function value by date
+    function_value_counts = melted_df.groupby(['date', 'Function']).size().unstack(fill_value=0)
+
+    # Set up colors for each function
+    method_list = function_value_counts.columns.tolist()
+    cmap = get_cmap('tab20', len(method_list))
+    colors = {method: cmap(i) for i, method in enumerate(method_list)}
+
+    # Prepare plotting
+    fig, ax = plt.subplots(figsize=(12, 6))
+    bottom = np.zeros(len(function_value_counts))
+    dates = function_value_counts.index
+
+    # Manually stack bars for each method
+    for method in method_list:
+        ax.bar(dates,
+               function_value_counts[method],
+               bottom=bottom,
+               label=method,
+               color=colors[method],
+               width=pd.Timedelta(days=3))  # Narrower bars for better spacing
+        bottom += function_value_counts[method].values
+
+    # Format x-axis as real dates
+    ax.xaxis.set_major_locator(mdates.MonthLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax.tick_params(axis='x', rotation=90, labelsize=9)
+
+    ax.set_title(f"Method Value Distribution over Time for {selection}", fontsize=9, fontweight='normal', family='sans-serif')
+    ax.set_ylabel('Counts of Method Occurrences', fontsize=9)
+    ax.set_xlabel('')
+    ax.legend(title="Method", loc='upper left', fontsize=9)
+    ax.grid(True, axis='y')
+
+    plt.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+
+def plot_signal_chart_old(df, selection, signal):
     
     # Blue scale: Light blue for low values, dark blue for high values
     bar_cmap = LinearSegmentedColormap.from_list("lightblue_darkblue", ["lightblue", "darkblue"])
@@ -436,6 +596,7 @@ def plot_signal_chart(df, selection, signal):
     ax1.set_ylabel("R_t", fontsize=9, fontweight='normal', family='sans-serif')
     ax1.set_title(f"Master model based on {selection} simulation / {signal}", fontsize=9, fontweight='normal', family='sans-serif')
     
+
     # Add a color bar (legend) for Signal
     sm = plt.cm.ScalarMappable(cmap=bar_cmap, norm=norm)
     sm.set_array([])
@@ -466,6 +627,63 @@ def plot_signal_chart(df, selection, signal):
     plt.tight_layout()
     
     # Display in Streamlit
+    st.pyplot(fig1)
+    plt.close(fig1)
+
+def plot_signal_chart(df, selection, signal):
+    import matplotlib.dates as mdates
+
+    # Ensure date column is in datetime format
+    df["date"] = pd.to_datetime(df["date"])
+
+    # Blue scale colormap
+    bar_cmap = LinearSegmentedColormap.from_list("lightblue_darkblue", ["lightblue", "darkblue"])
+
+    # Define color mappings
+    ohlc_colors = ['green' if close >= open_ else 'red' for close, open_ in zip(df['close'], df['open'])]
+    volume_colors = ['green' if close >= open_ else 'red' for close, open_ in zip(df['close'], df['open'])]
+
+    # Create figure and axis
+    fig1, ax1 = plt.subplots(figsize=(12, 6))
+
+    # Normalize Signal values
+    norm = Normalize(vmin=df["Signal"].min(), vmax=df["Signal"].max())
+
+    # Plot bar chart
+    bars = ax1.bar(df["date"], df["R_t"], color=bar_cmap(norm(df["Signal"])))
+
+    # Format x-axis with dates
+    ax1.xaxis.set_major_locator(mdates.MonthLocator())
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax1.tick_params(axis='x', rotation=90, labelsize=9)
+
+    ax1.grid(True)
+    ax1.set_xlabel("")
+    ax1.set_ylabel("R_t (Trade return after k periods)", fontsize=9, fontweight='normal', family='sans-serif')
+    ax1.set_title(f"Master model based on {selection} simulation / {signal}", fontsize=9, fontweight='normal', family='sans-serif')
+
+    # Color bar for Signal
+    sm = plt.cm.ScalarMappable(cmap=bar_cmap, norm=norm)
+    sm.set_array([])
+    plt.colorbar(sm, ax=ax1, label='Signal')
+
+    # Annotate bars with Signal values
+    for bar, sig in zip(bars, df["Signal"]):
+        ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() / 2, f'{sig:.2f}',
+                 ha='center', va='center', fontsize=9, rotation=90)
+
+    # Plot scatter dots for k_low or k_high
+    if "k_low" in df.columns:
+        ax1.scatter(df["date"], df["k_low"], color='red', marker='o', s=20, zorder=3, label='k_low')
+    elif "k_high" in df.columns:
+        ax1.scatter(df["date"], df["k_high"] * -1, color='red', marker='o', s=20, zorder=3, label='k_high')
+
+    # Legend
+    handles, labels = ax1.get_legend_handles_labels()
+    ax1.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.05, 0.1), ncol=1, fontsize=9, frameon=False)
+
+    # Layout and display
+    plt.tight_layout()
     st.pyplot(fig1)
     plt.close(fig1)
 
@@ -750,7 +968,7 @@ def plot_p_value(df, selection, signal_threshold, window):
     plt.axhline(y=0.05, color='red', linestyle='--', linewidth=1, label="Threshold (0.05)")
 
     # Set title and labels
-    ax.set_title(f"Simulation {selection} signal_threshold : {signal_threshold} / window {window}", fontsize=9, fontweight='normal', family='sans-serif')
+    ax.set_title(f"Randomness over time \nSimulation {selection} signal_threshold : {signal_threshold} / window {window}", fontsize=9, fontweight='normal', family='sans-serif')
     #ax.set_xlabel('Datetime', fontsize=9)
     ax.set_ylabel('p-value', fontsize=9)
 
@@ -761,14 +979,14 @@ def plot_p_value(df, selection, signal_threshold, window):
     st.pyplot(fig)
     plt.close(fig)
 
-def plot_win_rate(df, selection, signal_threshold, window):    
+def plot_win_rate_old(df, selection, signal_threshold, window):    
     # Plot the data
     fig, ax = plt.subplots(figsize=(12, 4))
     ax.plot(df['date'],  df['k'] / df['n_draws'], marker='o', linestyle='-', color='b', label='Sim_trials')
     plt.axhline(y=0.5, color='red', linestyle='--', linewidth=1, label="Threshold (0.5)")
 
     # Set title and labels
-    ax.set_title(f"Simulation {selection} signal_threshold : {signal_threshold} / window {window}", fontsize=9, fontweight='normal', family='sans-serif')
+    ax.set_title(f"Winrate over time \nSimulation {selection} signal_threshold : {signal_threshold} / window {window}", fontsize=9, fontweight='normal', family='sans-serif')
     #ax.set_xlabel('Datetime', fontsize=9)
     ax.set_ylabel('win rate', fontsize=9)
 
@@ -778,3 +996,479 @@ def plot_win_rate(df, selection, signal_threshold, window):
     # Display the plot in Streamlit
     st.pyplot(fig)
     plt.close(fig)
+
+def plot_win_rate(df, df_benchmark, selection, signal_threshold, window):    
+    # Dynamically trim trailing NaNs based on available column
+    key_col = None
+    if 'k_low' in df_benchmark.columns:
+        key_col = 'k_low'
+    elif 'k_high' in df_benchmark.columns:
+        key_col = 'k_high'
+
+    if key_col:
+        last_valid_idx = df_benchmark[key_col].last_valid_index()
+        if last_valid_idx is not None:
+            df_benchmark = df_benchmark.loc[:last_valid_idx]
+
+    # Create the figure and axis
+    fig, ax = plt.subplots(figsize=(12, 4))
+
+    # Plot the main (filtered) win rate
+    ax.plot(
+        df['date'],
+        df['k'] / df['n_draws'],
+        marker='o',
+        linestyle='-',
+        color='blue',
+        label='Win Rate'
+    )
+
+    # Plot the benchmark win rate
+    ax.plot(
+        df_benchmark['date'],
+        df_benchmark['K'] / df_benchmark['N'],
+        marker='x',
+        linestyle='--',
+        color='gray',
+        label='Benchmark Win Rate'
+    )
+
+    # Add threshold line
+    ax.axhline(y=0.5, color='red', linestyle='--', linewidth=1, label="Random Threshold (0.5)")
+
+    # Title and labels
+    ax.set_title(
+        f"Winrate over time\nSimulation {selection} | signal_threshold: {round(signal_threshold,3)} | window: {window}",
+        fontsize=9, fontweight='normal', family='sans-serif'
+    )
+    ax.set_ylabel('Win Rate', fontsize=9)
+
+    # Rotate x-axis labels
+    plt.xticks(rotation=90)
+
+    # Add legend
+    ax.legend(loc='best', fontsize=9)
+
+    # Show plot in Streamlit
+    st.pyplot(fig)
+    plt.close(fig)
+
+def compute_benchmark_returns_onlycall(df_signal, selected_leverage, selected_cost, k_opt):
+    """
+    Computes R_t_bench_temp and R_t_bench_comp using future prices.
+
+    Parameters:
+    df_signal : DataFrame with columns ["date", "Target", "R_t", "Signal", "open", "low", "high", "close"]
+    selected_leverage : float
+    selected_cost : float
+    k_opt : int, horizon for closing price
+
+    Returns:
+    DataFrame with new columns: R_t_bench_temp and R_t_bench_comp
+    """
+    df = df_signal.copy()
+    n = len(df)
+
+    R_t_bench_temp = []
+
+    for t in range(n):
+        t_open_idx = t + 1
+        t_close_idx = t + k_opt
+
+        if t_open_idx < n and t_close_idx < n:
+            open_t1 = df.loc[t_open_idx, 'open']
+            close_tk = df.loc[t_close_idx, 'close']
+
+            rt_bench = ((((close_tk - open_t1) / open_t1) / k_opt) * selected_leverage) - selected_cost
+            R_t_bench_temp.append(rt_bench)
+
+            print(f"t={t}: open_(t+1) = {open_t1:.4f}, close_(t+{k_opt}) = {close_tk:.4f}, R_t_bench_temp = {rt_bench:.4f}")
+        else:
+            R_t_bench_temp.append(np.nan)
+            print(f"t={t}: Not enough future data for open_(t+1) and/or close_(t+{k_opt})")
+
+    # Add temp returns
+    df["R_t_bench_temp"] = R_t_bench_temp
+
+    # Compute compounded returns
+    R_t_bench_comp = []
+    comp_return = 1.0
+    for rt in R_t_bench_temp:
+        if not np.isnan(rt):
+            comp_return *= (1 + rt)
+        R_t_bench_comp.append(comp_return)
+
+    df["R_t_bench_comp"] = R_t_bench_comp
+
+    return df
+
+def compute_strategy_returns_onlycall(df_signal, selected_leverage, selected_cost, k_opt,
+                              selected_signal, selected_slo, selected_sli):
+    """
+    Computes strategy compound return based on capped stop loss / take profit logic.
+
+    Parameters:
+    - df_signal : pd.DataFrame with market data (must include: open, close, low, high, Signal)
+    - selected_leverage : float, leverage multiplier
+    - selected_cost : float, transaction cost
+    - k_opt : int, holding period (e.g., 3 means hold from t+1 to t+3)
+    - selected_signal : float, minimum signal value to enter a trade
+    - selected_slo : float, stop-loss return threshold (absolute, positive value)
+    - selected_sli : float, take-profit return threshold (absolute, positive value)
+
+    Returns:
+    - Full DataFrame with added columns: R_t_temp, R_t_comp
+    """
+    df = df_signal.copy()
+    n = len(df)
+
+    R_t_temp = []
+    R_t_comp = []
+    comp_return = 1.0
+
+    for t in range(n):
+        signal = df.loc[t, "Signal"]
+        
+        if signal < selected_signal:
+            R_t_temp.append(np.nan)
+            R_t_comp.append(comp_return)
+            continue
+
+        open_t1_idx = t + 1
+        close_tk_idx = t + k_opt
+        low_range = range(t + 1, t + k_opt + 1)
+        high_range = range(t + 1, t + k_opt + 1)
+
+        if open_t1_idx >= n or close_tk_idx >= n or low_range[-1] >= n:
+            R_t_temp.append(np.nan)
+            R_t_comp.append(comp_return)
+            print(f"t={t}: Not enough data for open or close or high/low window")
+            continue
+
+        open_t1 = df.loc[open_t1_idx, 'open']
+        close_tk = df.loc[close_tk_idx, 'close']
+        lows = df.loc[low_range, 'low']
+        highs = df.loc[high_range, 'high']
+
+        min_low = lows.min()
+        max_high = highs.max()
+
+        R_low = abs((min_low - open_t1) / open_t1)
+        R_high = abs((max_high - open_t1) / open_t1)
+
+        if R_low >= selected_slo:
+            rt_temp = -1 * selected_slo
+            reason = "Stop Loss triggered"
+        elif R_high >= selected_sli:
+            rt_temp = selected_sli
+            reason = "Take Profit triggered"
+        else:
+            rt_temp = (close_tk - open_t1) / open_t1
+            reason = "Normal exit"
+
+        # Final return calculation
+        rt = ((rt_temp / k_opt) * selected_leverage) - selected_cost
+        comp_return *= (1 + rt)
+
+        R_t_temp.append(rt_temp)
+        R_t_comp.append(comp_return)
+
+        print(f"""
+t={t} | Signal={signal:.2f}
+Reason: {reason}
+Used open_(t+1): {open_t1:.4f}
+Used close_(t+{k_opt}): {close_tk:.4f}
+Min(low_(t+1 to t+{k_opt})): {min_low:.4f}
+Max(high_(t+1 to t+{k_opt})): {max_high:.4f}
+R_low: {R_low:.4f}, R_high: {R_high:.4f}
+R_t_temp (before leverage): {rt_temp:.4f}
+Final R_t (after leverage and cost): {rt:.4f}
+Cumulative Compounded Return: {comp_return:.4f}
+""")
+
+    df["R_t_temp"] = R_t_temp
+    df["R_t_comp"] = R_t_comp
+
+    return df
+
+def compute_benchmark_returns(df_signal, selected_leverage, selected_cost, k_opt, selected_model):
+    df = df_signal.copy()
+    n = len(df)
+    
+    R_t_bench_temp = []
+    R_t_bench_comp = []
+    comp_return = 1.0
+
+    for t in range(n):
+        open_idx = t + 1
+        close_idx = t + k_opt
+
+        if open_idx >= n or close_idx >= n:
+            R_t_bench_temp.append(np.nan)
+            R_t_bench_comp.append(comp_return)
+            print(f"{df.loc[t, 'date']}: t={t} - Not enough data")
+            continue
+
+        open_t1 = df.loc[open_idx, "open"]
+        close_tk = df.loc[close_idx, "close"]
+
+        direction = -1 if "put" in selected_model.lower() else 1
+
+        rt_temp = ((((close_tk - open_t1) / open_t1) / k_opt) * selected_leverage * direction) - selected_cost
+        comp_return *= (1 + rt_temp)
+
+        R_t_bench_temp.append(rt_temp)
+        R_t_bench_comp.append(comp_return)
+
+        print(f"{df.loc[t, 'date']} | Model: {selected_model.upper()} | t={t} | open_(t+1)={open_t1:.4f}, "
+              f"close_(t+{k_opt})={close_tk:.4f}, R_t_bench_temp={rt_temp:.4f}, Comp={comp_return:.4f}")
+
+    df["R_t_bench_temp"] = R_t_bench_temp
+    df["R_t_bench_comp"] = R_t_bench_comp
+    return df
+
+def compute_strategy_returns(df_signal, selected_leverage, selected_cost, k_opt, selected_signal, selected_slo, selected_sli, selected_model):
+    df = df_signal.copy()
+    n = len(df)
+
+    R_t_temp = []
+    R_t_comp = []
+    comp_return = 1.0
+
+    for t in range(n):
+        signal = df.loc[t, "Signal"]
+        if signal < selected_signal:
+            R_t_temp.append(np.nan)
+            R_t_comp.append(comp_return)
+            continue
+
+        open_idx = t + 1
+        close_idx = t + k_opt
+        range_idx = range(t + 1, t + k_opt + 1)
+
+        if open_idx >= n or close_idx >= n or range_idx[-1] >= n:
+            R_t_temp.append(np.nan)
+            R_t_comp.append(comp_return)
+            print(f"{df.loc[t, 'date']}: t={t} - Not enough data for strategy")
+            continue
+
+        open_t1 = df.loc[open_idx, 'open']
+        close_tk = df.loc[close_idx, 'close']
+        lows = df.loc[range_idx, 'low']
+        highs = df.loc[range_idx, 'high']
+
+        min_low = lows.min()
+        max_high = highs.max()
+
+        R_low = abs((min_low - open_t1) / open_t1)
+        R_high = abs((max_high - open_t1) / open_t1)
+
+        model = selected_model.lower()
+
+        if "put" in model:
+            # Put logic
+            if selected_slo <= R_high:
+                rt_temp = -1 * selected_slo
+                reason = "Stop Loss triggered (PUT)"
+            elif selected_sli <= R_low:
+                rt_temp = selected_sli
+                reason = "Take Profit triggered (PUT)"
+            else:
+                rt_temp = ((close_tk - open_t1) / open_t1) * -1
+                reason = "Normal exit (PUT)"
+        else:
+            # Call logic
+            if selected_slo <= R_low:
+                rt_temp = -1 * selected_slo
+                reason = "Stop Loss triggered (CALL)"
+            elif selected_sli <= R_high:
+                rt_temp = selected_sli
+                reason = "Take Profit triggered (CALL)"
+            else:
+                rt_temp = (close_tk - open_t1) / open_t1
+                reason = "Normal exit (CALL)"
+
+        R_t_temp.append(rt_temp)
+        rt = ((rt_temp / k_opt) * selected_leverage) - selected_cost
+        comp_return *= (1 + rt)
+        R_t_comp.append(comp_return)
+
+        print(f"""{df.loc[t, 'date']} | Model: {selected_model.upper()} | t={t}
+  Signal={signal:.2f} | {reason}
+  open_(t+1): {open_t1:.4f}, close_(t+{k_opt}): {close_tk:.4f}
+  min_low: {min_low:.4f}, max_high: {max_high:.4f}
+  R_low: {R_low:.4f}, R_high: {R_high:.4f}
+  R_t_temp: {rt_temp:.4f}, Final R_t: {rt:.4f}, Comp Return: {comp_return:.4f}""")
+
+    df["R_t_temp"] = R_t_temp
+    df["R_t_comp"] = R_t_comp
+    return df[df["Signal"] >= selected_signal].reset_index(drop=True)
+
+def plot_strategy_vs_benchmark(df_result, selected_model, k_opt, selected_slo, selected_sli, selected_leverage, selected_cost):
+    """
+    Plots strategy vs. benchmark compound return over time.
+
+    Parameters:
+    - df_result : DataFrame with 'date', 'R_t_comp', 'R_t_bench_comp' columns.
+    - selected_model : 'call' or 'put'
+    - k_opt : int
+    - selected_slo : float
+    - selected_sli : float
+    - selected_leverage : float
+    - selected_cost : float
+    """
+
+    df = df_result.copy()
+    df["date"] = pd.to_datetime(df["date"])
+
+    # Plot setup
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    ax.plot(df["date"], df["R_t_bench_comp"], label="Benchmark", color="gray", linewidth=2, linestyle="--")
+    ax.plot(df["date"], df["R_t_comp"], label="Strategy", color="blue", linewidth=2)
+
+    ax.set_ylabel("Compound Return", fontsize=9, fontweight='normal', family='sans-serif')
+    ax.set_xlabel("Date", fontsize=9, fontweight='normal', family='sans-serif')
+    ax.tick_params(axis='x', rotation=90, labelsize=9)
+    ax.grid(True)
+    ax.legend(fontsize=8)
+
+    # Title with parameters
+    title = (f"{selected_model.upper()} | k={k_opt} | SLO={round(selected_slo,3)} | SLI={round(selected_sli,3)} | "
+             f"Lev={selected_leverage} | Cost={selected_cost}")
+    fig.suptitle(f"Strategy vs Benchmark Compound Return\n{title}", fontsize=10, fontweight='normal', family='sans-serif')
+
+    # Streamlit display
+    st.pyplot(fig)
+    plt.close(fig)
+
+def analyze_weekly_returns_df(df_result, selected_signal=None, return_column='R_t_comp'):
+    label = 'strategy' if return_column == 'R_t_comp' else 'bench'
+    df = df_result.copy()
+    df['date'] = pd.to_datetime(df['date'])
+    df.set_index('date', inplace=True)
+
+    # Weekly compound return snapshot (last value in week)
+    weekly_comp = df[return_column].resample('W').last()
+
+    # Identify active weeks where at least one Signal ≥ selected_signal
+    if return_column == 'R_t_comp' and selected_signal is not None:
+        signal_active = df['Signal'].resample('W').apply(lambda x: (x >= selected_signal).any())
+        weekly_comp = weekly_comp[signal_active]    
+
+    # Calculate weekly returns
+    weekly_returns = weekly_comp.pct_change().dropna()
+    returns = weekly_returns.values
+
+    if len(returns) == 0:
+        return pd.DataFrame({label: ["Not enough data"]}, index=["error"])
+
+    # --- Metrics ---
+    n_trades = (returns != 0).sum()
+    n_share = (returns != 0).mean()
+    n_pos = (returns > 0).sum()
+    cum_return = (returns + 1).prod() - 1
+    cagr = (1 + cum_return) ** (52 / len(returns)) - 1
+
+    avg_loss = np.mean(returns[returns < 0]) if any(returns < 0) else 0
+    avg_win = np.mean(returns[returns > 0]) if any(returns > 0) else 0
+    avg_return = np.mean(returns)
+    expected_return = avg_return
+    expected_shortfall = np.mean(returns[returns <= np.percentile(returns, 5)])
+
+    gain_to_pain_ratio = (
+        returns[returns > 0].sum() / abs(returns[returns < 0].sum()) if any(returns < 0) else np.nan
+    )
+    payoff_ratio = avg_win / abs(avg_loss) if avg_loss != 0 else np.nan
+    profit_factor = gain_to_pain_ratio  # same as gain_to_pain_ratio
+    profit_ratio = np.sum(returns > 0) / len(returns)
+
+    win_rate = n_pos / n_trades if n_trades > 0 else np.nan
+    win_loss_ratio = n_pos / (n_trades - n_pos) if (n_trades - n_pos) > 0 else np.nan
+
+    risk_of_ruin = (
+        (1 - win_rate) / (1 + win_loss_ratio) ** 2 if win_loss_ratio and win_rate and win_loss_ratio != 0 else np.nan
+    )
+    risk_return_ratio = np.std(returns) / avg_return if avg_return != 0 else np.nan
+    value_at_risk = np.percentile(returns, 5)
+    volatility = np.std(returns)
+    implied_volatility = volatility * np.sqrt(52)
+
+    sharpe = avg_return / np.std(returns) * np.sqrt(52) if np.std(returns) != 0 else np.nan
+    downside = np.std(returns[returns < 0])
+    sortino = avg_return / downside * np.sqrt(52) if downside != 0 else np.nan
+
+    metrics = {
+        "n_weeks": len(returns),
+        "n_trades": n_trades,
+        "n_share": round(n_share, 4),
+        "n_pos": n_pos,
+        "win_rate": round(win_rate, 4),
+        "win_loss_ratio": round(win_loss_ratio, 4),
+        "cum_return": round(cum_return, 4),
+        "cagr": round(cagr, 4),
+        "avg_win": round(avg_win, 4),
+        "avg_loss": round(avg_loss, 4),
+        "avg_return": round(avg_return, 4),
+        "expected_return": round(expected_return, 4),
+        "expected_shortfall": round(expected_shortfall, 4),
+        "gain_to_pain_ratio": round(gain_to_pain_ratio, 4) if not np.isnan(gain_to_pain_ratio) else np.nan,
+        "payoff_ratio": round(payoff_ratio, 4) if not np.isnan(payoff_ratio) else np.nan,
+        "profit_factor": round(profit_factor, 4) if not np.isnan(profit_factor) else np.nan,
+        "profit_ratio": round(profit_ratio, 4),
+        "risk_of_ruin": round(risk_of_ruin, 4) if not np.isnan(risk_of_ruin) else np.nan,
+        "risk_return_ratio": round(risk_return_ratio, 4) if not np.isnan(risk_return_ratio) else np.nan,
+        "value_at_risk": round(value_at_risk, 4),
+        "volatility": round(volatility, 4),
+        "implied_volatility": round(implied_volatility, 4),
+        "sharpe": round(sharpe, 4) if not np.isnan(sharpe) else np.nan,
+        "sortino": round(sortino, 4) if not np.isnan(sortino) else np.nan,
+    }
+
+    return pd.DataFrame({label: metrics})
+
+def plot_metrics_comparison(df_comparison, small_threshold=1.0, figsize=(10, 6)):
+    """
+    Plots horizontal bar charts comparing strategy and bench metrics.
+
+    Parameters:
+    - df_comparison: DataFrame from analyze_weekly_returns_df (combined)
+    - small_threshold: float, used to separate small vs large metrics
+    - figsize: tuple, size of each figure
+    """
+
+    # Separate metrics into small vs large based on threshold
+    abs_max = df_comparison.abs().max(axis=1)
+    small_metrics = abs_max[abs_max <= small_threshold].index.tolist()
+    large_metrics = abs_max[abs_max > small_threshold].index.tolist()
+
+    def _plot(metrics_subset, title_suffix):
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # Subset and reorder for display
+        data = df_comparison.loc[metrics_subset]
+        data = data.sort_values(by="strategy", ascending=True)
+
+        # Bar positions
+        y_pos = range(len(data))
+
+        ax.barh(y_pos, data["strategy"], height=0.4, label='Strategy', color='green', alpha=0.6)
+        ax.barh([y + 0.4 for y in y_pos], data["bench"], height=0.4, label='Bench', color='steelblue', alpha=0.6)
+
+        ax.set_yticks([y + 0.2 for y in y_pos])
+        ax.set_yticklabels(data.index)
+        ax.invert_yaxis()
+        ax.set_title(f"Metric Comparison ({title_suffix})", fontsize=10, fontweight='normal')
+        ax.set_xlabel("Metric Value", fontsize=9)
+        ax.legend()
+        ax.grid(True, linestyle="--", alpha=0.4)
+
+        st.pyplot(fig)
+        plt.close(fig)
+
+    # Plot small and large separately
+    if small_metrics:
+        _plot(small_metrics, "Small Metrics")
+
+    if large_metrics:
+        _plot(large_metrics, "Large Metrics")
